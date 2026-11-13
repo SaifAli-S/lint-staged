@@ -1,3 +1,5 @@
+import { fileURLToPath } from 'node:url'
+
 import makeConsoleMock from 'consolemock'
 import { describe, it, vi } from 'vitest'
 
@@ -20,7 +22,7 @@ vi.mock('../../lib/runAll.js', () => ({
 const { default: lintStaged } = await import('../../lib/index.js')
 const { runAll } = await import('../../lib/runAll.js')
 const { getInitialState } = await import('../../lib/state.js')
-const { ApplyEmptyCommitError, ConfigNotFoundError, GitError } =
+const { ApplyEmptyCommitError, ConfigNotFoundError, GitError, RestoreUnstagedChangesError } =
   await import('../../lib/symbols.js')
 
 describe('lintStaged', () => {
@@ -93,6 +95,41 @@ describe('lintStaged', () => {
     expect(logger.printHistory()).not.toMatch(
       'Any lost modifications can be restored from a git stash'
     )
+  })
+
+  it('should not log recovery patch warning when unstaged patch does not exist', async ({
+    expect,
+  }) => {
+    const ctx = getInitialState()
+    ctx.errors.add(RestoreUnstagedChangesError)
+    ctx.unstagedPatch = '/non/existent/path/unstaged.patch'
+    runAll.mockImplementationOnce(async () => {
+      throw { ctx }
+    })
+
+    const logger = makeConsoleMock()
+
+    await expect(lintStaged({}, logger)).resolves.toEqual(false)
+
+    expect(logger.printHistory()).not.toMatch(
+      'Unstaged changes have been kept back in a patch file'
+    )
+  })
+
+  it('should log recovery patch warning when unstaged patch exists', async ({ expect }) => {
+    const ctx = getInitialState()
+    ctx.errors.add(RestoreUnstagedChangesError)
+    ctx.unstagedPatch = fileURLToPath(import.meta.url)
+    runAll.mockImplementationOnce(async () => {
+      throw { ctx }
+    })
+
+    const logger = makeConsoleMock()
+
+    await expect(lintStaged({}, logger)).resolves.toEqual(false)
+
+    expect(logger.printHistory()).toMatch('Unstaged changes have been kept back in a patch file')
+    expect(logger.printHistory()).toMatch(fileURLToPath(import.meta.url))
   })
 
   it('should throw when context is malformed', async ({ expect }) => {
